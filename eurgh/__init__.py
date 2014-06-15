@@ -6,13 +6,14 @@
 Eurgh - a translation utility using Microsoft Translate API
 """
 
+from configparser import ConfigParser
 import time
 from logging import getLogger
 from urllib.request import Request, urlopen
 from urllib.parse import urlencode
 from urllib.error import HTTPError
 from json import loads
-
+import xml.etree.ElementTree as ET
 
 __author__ = 'Preston Landers (planders@gmail.com)'
 __copyright__ = 'Copyright (c) 2014 Preston Landers'
@@ -21,24 +22,23 @@ __version__ = '0.1'
 
 log = getLogger(__name__)
 
-CLIENT_ID = "CHANGE_ME"
-CLIENT_SECRET = "CHANGE_ME_TOO"
-
 
 class Eurgh(object):
     BASE_API = "http://api.microsofttranslator.com/v2/Http.svc/"
 
     AUTH_URL = "https://datamarket.accesscontrol.windows.net/v2/OAuth2-13"
 
-    def __init__(self):
+    def __init__(self, config_file):
+        self.config = config = ConfigParser()
+        config.read(config_file)
         self._access_token = None
         self._access_token_expires = time.time()
 
-        self.from_lang = "en"
-        self.to_lang = "fr"
+        self.from_lang = config.get("translate", "from_lang")
+        self.to_langs = config.get("translate", "to_lang").split(" ")
 
-        self.client_id = CLIENT_ID
-        self.client_secret = CLIENT_SECRET
+        self.client_id = config.get("secrets", "client_id")
+        self.client_secret = config.get("secrets", "client_secret")
         return
 
     @property
@@ -75,7 +75,7 @@ class Eurgh(object):
         if from_lang is None:
             from_lang = self.from_lang
         if to_lang is None:
-            to_lang = self.to_lang
+            to_lang = self.to_langs[0]
 
         # url = BASE_API + "TranslateArray?"
         url = self.BASE_API + "Translate?"
@@ -100,20 +100,22 @@ class Eurgh(object):
         # print(result)
         return self.deserialize(result)
 
-    def deserialize(self, result):
-        return result
+    @staticmethod
+    def deserialize(result):
+        tree = ET.fromstring(result)
+        return tree.text
 
 
 def test():
     test_strings = (
-        "To make request to any method of Microsoft translator you will need access token",
-        "Have a nice day."
+        "Testing",
+        "Goodbye."
     )
-    eurgh = Eurgh()
+    eurgh = Eurgh("local.ini")
     for tr_str in test_strings:
         res = eurgh.translate_string(tr_str)
         print("%s ==> %s" % (tr_str, res))
 
+
 if __name__ == "__main__":
     test()
-
