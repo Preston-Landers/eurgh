@@ -1,0 +1,14 @@
+.idea
+*~
+*.venv
+.coverage
+*.pyc
+*.egg-info
+*.sqlite
+*.pid
+logs
+local.ini
+production-local.ini
+docs/build/*
+tmp
+py3
