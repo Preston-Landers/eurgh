@@ -3,20 +3,18 @@
 # vim: fileencoding=utf-8 tabstop=4 expandtab shiftwidth=4
 
 """
-Eurgh - a translation utility using Microsoft Translate API
+Eurgh - an application message catalog translation utility using the
+Microsoft Translator API.
 """
 
-import re
-import time
+import os
 from configparser import ConfigParser
 from logging import getLogger
-from urllib.request import Request, urlopen
-from urllib.parse import urlencode
-from urllib.error import HTTPError
-from json import loads
-import xml.etree.ElementTree as ET
+from logging.config import fileConfig
+import codecs
 
-from eurgh.languages import LANGUAGES
+from babel.messages.pofile import read_po, write_po
+from eurgh.translator import EurghTranslator
 
 
 __author__ = 'Preston Landers (planders@gmail.com)'
@@ -24,186 +22,149 @@ __copyright__ = 'Copyright (c) 2014 Preston Landers'
 __license__ = 'Proprietary'
 __version__ = '0.1'
 
-log = getLogger(__name__)
+log = getLogger("eurgh")
 
 
-class Eurgh(object):
-    BASE_API = "http://api.microsofttranslator.com/v2/Http.svc/"
-
-    AUTH_URL = "https://datamarket.accesscontrol.windows.net/v2/OAuth2-13"
-
-    # Max size of string array for TranslateArray
-    MAX_API_ARRAY = 2000
+class EurghApp(object):
+    """
+    This class can translate message catalogs compiled from source code.
+    """
 
     def __init__(self, config_file):
+        global log
         self.config = config = ConfigParser()
         config.read(config_file)
-        self._access_token = None
-        self._access_token_expires = time.time()
+        fileConfig(config_file, disable_existing_loggers=False)
 
         self.from_lang = config.get("translate", "from_lang")
         self.to_langs = config.get("translate", "to_lang").split(" ")
+        self.app_locale_dir = config.get("app", "locale_dir", fallback=None)
+        self.app_domain = config.get("app", "domain", fallback="messages")
+        self.app_encoding = config.get("app", "encoding", fallback="utf-8")
+        self.blank_only = config.getboolean("app", "blank_only", fallback=True)
 
+        self.translator = EurghTranslator(config_file)
+
+    def translate_app_source(self):
+        if not self.app_locale_dir:
+            raise ValueError("You must set app.locale_dir in the config file to use this feature.")
+        if not os.path.exists(self.app_locale_dir):
+            raise ValueError("Can't find your app.locale_dir at %s" % (self.app_locale_dir,))
+        if not self.from_lang:
+            raise ValueError("No from_lang specified in config file.")
+        if not self.to_langs:
+            raise ValueError("No to_lang specified in config file.")
         for lang in self.to_langs:
-            if lang not in LANGUAGES:
-                raise ValueError("Unsupported language: %s" % (lang,))
-
-        self.client_id = config.get("secrets", "client_id")
-        self.client_secret = config.get("secrets", "client_secret")
-
-        self.api_category = config.get("translate", "category", fallback="general")
+            self.translate_app_language(lang)
+        log.info("Finished.")
         return
 
-    @property
-    def access_token(self):
-        if self._access_token and self.is_access_token_ok():
-            return self._access_token
-        self._access_token = self.get_access_token()
-        expires_in = int(self._access_token['expires_in'])
-        self._access_token_expires = time.time() + expires_in
-        return self._access_token
+    def translate_app_language(self, lang):
+        lang_dir = os.path.join(self.app_locale_dir, lang, "LC_MESSAGES")
+        lang_po_file = os.path.join(lang_dir, "%s.po" % (self.app_domain,))
 
-    def is_access_token_ok(self):
-        if time.time() >= self._access_token_expires:
-            return False
-        return True
+        def bad_path(pth):
+            msg = """Can't find %s. Maybe you need to run:
+pybabel init -l ja -i /path/to/app/src/locale/myapp.pot -d /path/to/app/src/locale -D myapp""" % (pth,)
+            raise IOError(msg)
 
-    def get_access_token(self):
-        data = dict(
-            client_id=self.client_id,
-            client_secret=self.client_secret,
-            scope="http://api.microsofttranslator.com",
-            grant_type="client_credentials",
-        )
-        data_bytes = urlencode(data).encode("utf-8")
-        request = Request(self.AUTH_URL, data_bytes, method="POST")
-        request.add_header("Content-Type", "application/x-www-form-urlencoded;charset=utf-8")
-        response = urlopen(request, data_bytes)
-        result = response.read().decode("utf-8")
-        result_dict = loads(result)
-        return result_dict
+        if not os.path.exists(lang_dir):
+            bad_path(lang_dir)
+        if not os.path.exists(lang_po_file):
+            bad_path(lang_po_file)
 
-    def translate_string(self, tr_string, from_lang=None, to_lang=None):
+        input_file = codecs.open(lang_po_file, encoding=self.app_encoding, mode="rb")
+        # file_data = input_file.read()
+        # log.info(file_data)
 
-        if from_lang is None:
-            from_lang = self.from_lang
-        if to_lang is None:
-            to_lang = self.to_langs[0]
+        catalog = read_po(input_file)
+        input_file.close()
+        log.warn("Opened message catalog: %s", lang_po_file)
+        self.translate_catalog(lang, lang_po_file, catalog)
 
-        url = self.BASE_API + "Translate?"
-        # Must be in this order!
-        params = urlencode([
-            ("text", tr_string),
-            ("from", from_lang),
-            ("to", to_lang),
-            ("contentType", "text/plain"),
-            ("category", self.api_category),
-        ])
-        request = Request(url + params)
-        result = self.run_request(request)
-        return self.deserialize(result)
+    def translate_catalog(self, lang, lang_po_file, catalog):
+        for start_index, stop_index in get_blocks(len(catalog), self.translator.MAX_API_ARRAY):
 
-    def translate_strings(self, str_array, from_lang=None, to_lang=None):
-        if len(str_array) > self.MAX_API_ARRAY:
-            raise ValueError(
-                "List is too big to translate, %s is greater than %s" % (len(str_array), self.MAX_API_ARRAY))
-        if from_lang is None:
-            from_lang = self.from_lang
-        if to_lang is None:
-            to_lang = self.to_langs[0]
-        url = self.BASE_API + "TranslateArray?"
-        # Must be in this order!
-        data = [("from", from_lang)]
-        data.extend([("texts", thing) for thing in str_array])
-        data.extend([("to", to_lang)])
+            # noinspection PyProtectedMember
+            def m_slice(cat, start, stop):
+                all_keys = cat._messages.keys()
+                for i in range(start, stop):
+                    key = all_keys[i]
+                    yield key, cat._messages[key]
 
-        strings_enc = "\n".join([self.serialize(thing) for thing in str_array])
-        category = self.api_category
-        content_type = "text/plain"
+            dict_array = []
+            for msgId, msg in m_slice(catalog, start_index, stop_index):
+                # log.warn("Message %s", msgId)
+                msg_dict = {
+                    'msgId': msgId,
+                    'message': msg,
+                }
+                if msg.string:
+                    if self.blank_only:
+                        log.warn("Skipping existing: %s => %s", msgId, msg.string)
+                    else:
+                        log.warn("Overwriting existing: %s => %s", msgId, msg.string)
+                        dict_array.append(msg_dict)
+                else:
+                    dict_array.append(msg_dict)
 
-        data = """\
-<TranslateArrayRequest>
-  <AppId />
-  <From>%(from_lang)s</From>
-  <Options>
-    <Category xmlns="http://schemas.datacontract.org/2004/07/Microsoft.MT.Web.Service.V2" >%(category)s</Category>
-    <ContentType xmlns="http://schemas.datacontract.org/2004/07/Microsoft.MT.Web.Service.V2">%(content_type)s</ContentType>
-    <ReservedFlags xmlns="http://schemas.datacontract.org/2004/07/Microsoft.MT.Web.Service.V2" />
-    <State xmlns="http://schemas.datacontract.org/2004/07/Microsoft.MT.Web.Service.V2" />
-    <Uri xmlns="http://schemas.datacontract.org/2004/07/Microsoft.MT.Web.Service.V2" />
-    <User xmlns="http://schemas.datacontract.org/2004/07/Microsoft.MT.Web.Service.V2" />
-  </Options>
-  <Texts>
-    %(strings_enc)s
-  </Texts>
-  <To>%(to_lang)s</To>
-</TranslateArrayRequest>""" % locals()
+            result = self.translator.translate_strings([item['msgId'] for item in dict_array], to_lang=lang)
+            log.debug("Got %s new translations", len(result))
 
-        data_bytes = bytes(data.encode("utf-8"))
-        request = Request(url, data_bytes, method="POST")
-        request.add_header("Content-Type", "text/xml")
-        result = self.run_request(request)
-        result_list = self.deserialize_array(result)
-        result_dict = self.simplify_array_result(str_array, result_list)
-        return result_list
+            for msg_dict in dict_array:
+                msgId = msg_dict['msgId']
+                message = msg_dict['message']
+                this_translation = str(result[msgId])
+                log.info("New trans: %s => %s", msgId, this_translation)
+                message.string = this_translation
+
+        log.debug("Finished translating: %s", lang_po_file)
+        self.write_out_catalog(lang_po_file, catalog)
 
     @staticmethod
-    def simplify_array_result(orig_array, result_list):
-        res = {}
-        for i in range(len(orig_array)):
-            orig_str = orig_array[i]
-            result_entry = result_list[i]
-            res[orig_str] = result_entry["TranslatedText"]
-        return res
-
-    @staticmethod
-    def serialize(thing):
-        return '<string xmlns="http://schemas.microsoft.com/2003/10/Serialization/Arrays">%s</string>' % (thing,)
-
-    def run_request(self, request):
-        request.add_header("Authorization", "Bearer %s" % (self.access_token['access_token'],))
-        try:
-            response = urlopen(request)
-        except HTTPError as e:
-            print("ERROR")
-            print(e)
-            # return 1
-            raise e
-        result = response.read().decode("utf-8")
-        return result
-
-    @staticmethod
-    def deserialize(result):
-        tree = ET.fromstring(result)
-        return tree.text
-
-    @staticmethod
-    def deserialize_array(array_response):
-        tree = ET.fromstring(array_response)
-        res = []
-        for response in tree:
-            d = {}
-            for part in response:
-                tag = strip_tag(part.tag)
-                d[tag] = part.text
-            res.append(d)
-        return res
+    def write_out_catalog(lang_po_file, catalog):
+        # output_file = codecs.open(lang_po_file, encoding=self.app_encoding, mode="wb")
+        with open(lang_po_file, "wb") as output_file:
+            write_po(output_file, catalog)
+        log.info("Finished writing new catalog to: %s", lang_po_file)
+        # output_file.close()
 
 
-def strip_tag(atag):
-    return re.sub(r"{.*?}", "", atag)
+def get_blocks(seq_len, block_size):
+    """
+    >>> get_blocks(6450, 2000)
+    [(0, 1999), (2000, 3999), (4000, 5999), (6000, 6450)]
+
+    :return:
+    """
+    num_blocks = int(seq_len / block_size)
+    if num_blocks == 0:
+        return [(0, seq_len)]
+    rv = []
+    i = 0
+    for block_num in range(num_blocks):
+        rv.append((i, ((block_num + 1) * block_size - 1)))
+        i += block_size
+    new_len = num_blocks * block_size
+    if new_len < seq_len:
+        rv.append((new_len, (seq_len - new_len) + new_len))
+    return rv
 
 
 def test():
-    test_strings = (
-        "Testing",
-        "Goodbye."
-    )
-    eurgh = Eurgh("local.ini")
+    # test_strings = (
+    # "Testing",
+    # "Goodbye."
+    # )
+    # eurgh = EurghApp("local.ini")
+
     # for tr_str in test_strings:
     # res = eurgh.translate_string(tr_str)
     # print("%s ==> %s" % (tr_str, res))
-    print(eurgh.translate_strings(test_strings))
+    # print(eurgh.translator.translate_strings(test_strings))
+
+    eurgh = EurghApp("local.ini")
+    eurgh.translate_app_source()
 
 
 if __name__ == "__main__":

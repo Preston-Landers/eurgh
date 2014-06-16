@@ -20,6 +20,7 @@ __copyright__ = 'Copyright (c) 2014 Preston Landers'
 __license__ = 'Proprietary'
 
 requires = [
+    'babel',
 ]
 
 setup(
