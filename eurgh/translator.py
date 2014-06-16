@@ -12,9 +12,14 @@ from json import loads
 from logging import getLogger
 import time
 import re
-from urllib.error import HTTPError
-from urllib.parse import urlencode
-from urllib.request import Request, urlopen
+
+# Why is PyCharm not seeing these?
+# noinspection PyUnresolvedReferences
+from six.moves.urllib.error import HTTPError
+# noinspection PyUnresolvedReferences
+from six.moves.urllib.parse import urlencode
+# noinspection PyUnresolvedReferences
+from six.moves.urllib.request import Request, urlopen
 from xml.etree import ElementTree as ET
 from eurgh.languages import LANGUAGES
 

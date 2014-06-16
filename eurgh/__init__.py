@@ -7,6 +7,7 @@ Eurgh - an application message catalog translation utility using the
 Microsoft Translator API.
 """
 
+import sys
 import os
 from configparser import ConfigParser
 from logging import getLogger
@@ -74,15 +75,13 @@ pybabel init -l ja -i /path/to/app/src/locale/myapp.pot -d /path/to/app/src/loca
             bad_path(lang_po_file)
 
         input_file = codecs.open(lang_po_file, encoding=self.app_encoding, mode="rb")
-        # file_data = input_file.read()
-        # log.info(file_data)
-
         catalog = read_po(input_file)
         input_file.close()
         log.warn("Opened message catalog: %s", lang_po_file)
         self.translate_catalog(lang, lang_po_file, catalog)
 
     def translate_catalog(self, lang, lang_po_file, catalog):
+        changed_file = False
         for start_index, stop_index in get_blocks(len(catalog), self.translator.MAX_API_ARRAY):
 
             # noinspection PyProtectedMember
@@ -108,26 +107,31 @@ pybabel init -l ja -i /path/to/app/src/locale/myapp.pot -d /path/to/app/src/loca
                 else:
                     dict_array.append(msg_dict)
 
-            result = self.translator.translate_strings([item['msgId'] for item in dict_array], to_lang=lang)
-            log.debug("Got %s new translations", len(result))
+            if not dict_array:
+                log.info("No changes to section (%s, %s) for: %s", start_index, stop_index, lang_po_file)
+            else:
+                result = self.translator.translate_strings([item['msgId'] for item in dict_array], to_lang=lang)
+                log.debug("Got %s new translations for: %s (%s, %s)", len(result), lang_po_file, start_index, stop_index)
 
-            for msg_dict in dict_array:
-                msgId = msg_dict['msgId']
-                message = msg_dict['message']
-                this_translation = str(result[msgId])
-                log.info("New trans: %s => %s", msgId, this_translation)
-                message.string = this_translation
+                for msg_dict in dict_array:
+                    msgId = msg_dict['msgId']
+                    message = msg_dict['message']
+                    this_translation = str(result[msgId])
+                    log.info("New trans: %s => %s", msgId, this_translation)
+                    message.string = this_translation
+                    changed_file = True
 
-        log.debug("Finished translating: %s", lang_po_file)
-        self.write_out_catalog(lang_po_file, catalog)
+        if changed_file:
+            log.debug("Finished translating: %s", lang_po_file)
+            self.write_out_catalog(lang_po_file, catalog)
+        else:
+            log.debug("No changes to file: %s", lang_po_file)
 
     @staticmethod
     def write_out_catalog(lang_po_file, catalog):
-        # output_file = codecs.open(lang_po_file, encoding=self.app_encoding, mode="wb")
         with open(lang_po_file, "wb") as output_file:
             write_po(output_file, catalog)
         log.info("Finished writing new catalog to: %s", lang_po_file)
-        # output_file.close()
 
 
 def get_blocks(seq_len, block_size):
@@ -167,5 +171,16 @@ def test():
     eurgh.translate_app_source()
 
 
+def main():
+    try:
+        config_file = sys.argv[1]
+    except KeyError:
+        raise RuntimeError("You must give the config.ini file as the first argument.")
+    if not os.path.exists(config_file):
+        raise IOError("Can't find config file at: %s" % (config_file,))
+    eurgh = EurghApp(config_file)
+    eurgh.translate_app_source()
+
+
 if __name__ == "__main__":
-    test()
+    main()

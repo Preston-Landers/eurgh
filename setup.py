@@ -20,6 +20,7 @@ __copyright__ = 'Copyright (c) 2014 Preston Landers'
 __license__ = 'Proprietary'
 
 requires = [
+    'six',
     'babel',
 ]
 
@@ -38,6 +39,9 @@ setup(
         "Topic :: Software Development :: Localization",
         "Topic :: Text Processing :: Linguistic",
         "Programming Language :: Python",
+        "Programming Language :: Python :: 2.7",
+        "Programming Language :: Python :: 3.3",
+        "Programming Language :: Python :: 3.4",
     ],
     author='Preston Landers',
     author_email='planders@gmail.com',

@@ -88,9 +88,13 @@ Now run Eurgh it like:
 
     $ eurgh local.ini
 
+NOTE: for now you must actually run it like:
+
+    $ python -m eurgh local.ini
+
 Your message catalogs should now be updated.  Please review and edit the translations. 
 Now you can compile the message catalog and recompile your app. For example, Python users 
-might do:
+might do this in their own app source code directory:
     
     $ python setup.py compile_catalog
 
