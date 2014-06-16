@@ -19,8 +19,11 @@ the scope of this documentation.
 Python users may want to start here:
 
 http://docs.pylonsproject.org/projects/pyramid/en/latest/narr/i18n.html
+
 http://babel.pocoo.org/
+
 https://docs.python.org/2/library/gettext.html
+
 https://pypi.python.org/pypi/lingua
 
 ## Supported Languages ##
@@ -30,6 +33,9 @@ Supported language codes are here:
 http://msdn.microsoft.com/en-us/library/hh456380.aspx
 
 ## Requirements ##
+
+You need Python 2 or 3 to run this program. The package 'babel' will be installed by 
+this tool's setup.py script if not already available.
 
 You should have some source code with a locale directory where you have subdirectories 
 for each language. For instance, imagine your app source code is:
@@ -50,6 +56,11 @@ a way to track API requests.
 
 Then you must subscribe to at least the free tier of the Microsoft Translator data set.
 
+## Install ##
+
+Download the source code into a directory.
+
+    $ python setup.py install
 
 ## Command Line Usage ##
 
