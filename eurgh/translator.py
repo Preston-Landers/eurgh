@@ -163,6 +163,9 @@ class EurghTranslator(object):
 
     @staticmethod
     def serialize(thing):
+        thing = thing.replace("&", "&amp;")
+        thing = thing.replace("<", "&lt;")
+        thing = thing.replace(">", "&gt;")
         return '<string xmlns="http://schemas.microsoft.com/2003/10/Serialization/Arrays">%s</string>' % (thing,)
 
     def run_request(self, request):

@@ -7,7 +7,7 @@
 *.sqlite
 *.pid
 logs
-local.ini
+local*.ini
 production-local.ini
 docs/build/*
 tmp

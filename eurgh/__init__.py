@@ -6,6 +6,8 @@
 Eurgh - an application message catalog translation utility using the
 Microsoft Translator API.
 """
+import copy
+import json
 
 import sys
 import os
@@ -44,6 +46,8 @@ class EurghApp(object):
         self.app_encoding = config.get("app", "encoding", fallback="utf-8")
         self.blank_only = config.getboolean("app", "blank_only", fallback=True)
 
+        self.use_json = config.getboolean("app", "json", fallback=False)
+
         self.translator = EurghTranslator(config_file)
 
     def translate_app_source(self):
@@ -61,6 +65,101 @@ class EurghApp(object):
         return
 
     def translate_app_language(self, lang):
+        if self.use_json:
+            return self.translate_app_language_json(lang)
+        return self.translate_app_language_mc(lang)
+
+    def translate_app_language_json(self, lang):
+        domain = self.app_domain
+        locale = lang
+
+        targetFile = self.config.get(
+            "app", "json_file_template", fallback='', vars=locals())
+
+        sourceFile = self.config.get(
+            "app", "json_source_file", fallback='', vars=locals())
+
+        if not targetFile or not sourceFile:
+            log.info('No source or target files. source: %s  target: %s' % (sourceFile, targetFile))
+            return
+
+        lang_json_file = os.path.join(self.app_locale_dir, targetFile)
+        if not os.path.exists(lang_json_file):
+            msg = "JSON target language file doesn't exist: %s" % (lang_json_file,)
+            log.error(msg)
+            raise IOError(msg)
+
+        source_json_file = os.path.join(self.app_locale_dir, sourceFile)
+        if not os.path.exists(source_json_file):
+            msg = "JSON source language file doesn't exist: %s" % (source_json_file,)
+            log.error(msg)
+            raise IOError(msg)
+
+        target_fileh = codecs.open(lang_json_file, encoding=self.app_encoding, mode="r")
+        target_data = json.load(target_fileh)
+
+        source_fileh = codecs.open(source_json_file, encoding=self.app_encoding, mode="r")
+        source_data = json.load(source_fileh)
+        source_fileh.close()
+
+        was_changed, new_data = self.translate_json(lang, source_data, target_data)
+        if was_changed:
+            outfileh = codecs.open(lang_json_file, encoding=self.app_encoding, mode="w")
+            json.dump(new_data, outfileh, ensure_ascii=False, sort_keys=True, indent=4, separators=(',', ': '))
+            outfileh.close()
+
+        log.info("Completed translation of %s" % (targetFile,))
+        return
+
+    def translate_json(self, locale, source_data, target_data):
+
+        was_changed = False
+        out_data = copy.deepcopy(target_data)
+
+        all_keys = sorted(source_data.keys())
+        num_keys = len(all_keys)
+        for start_index, stop_index in get_blocks(num_keys, self.translator.MAX_API_ARRAY):
+            slice_keys = all_keys[start_index:stop_index]
+            if not slice_keys:
+                continue
+
+            translate_keys = []
+            translate_vals = []
+
+            for keyname in slice_keys:
+                source_val = source_data[keyname]
+                if not source_val:
+                    source_val = keyname  # use the key if we have to...?
+                target_val = out_data.get(keyname, '')
+                if target_val:
+                    log.info("already trans: %s -> %s" % (keyname, target_val))
+                    continue
+                translate_keys.append(keyname)
+                translate_vals.append(source_val)
+
+            if not translate_keys:
+                log.info("Nothing to translate in this section? %s:%s" % (start_index, stop_index))
+                continue
+
+            result_vals = self.translator.translate_strings(
+                translate_vals, to_lang=locale)
+            log.debug("Got %s new translations for: %s (%s, %s)",
+                      len(result_vals), locale, start_index, stop_index)
+
+            for i in range(len(translate_keys)):
+                xkey = translate_keys[i]
+                source_val = translate_vals[i]
+                xval = result_vals.get(source_val, xkey)
+                if xkey == xval:
+                    log.info("Skipping %s -> %s" % (xkey, xkey))
+                    continue
+                log.debug("Translating %s: %s -> %s" % (locale, xkey, xval))
+                out_data[xkey] = xval
+                was_changed = True
+
+        return was_changed, out_data
+
+    def translate_app_language_mc(self, lang):
         lang_dir = os.path.join(self.app_locale_dir, lang, "LC_MESSAGES")
         lang_po_file = os.path.join(lang_dir, "%s.po" % (self.app_domain,))
 
