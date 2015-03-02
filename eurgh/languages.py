@@ -18,6 +18,8 @@ LANGUAGES = {
     "ca": "Catalan",
     "zh-CHS": "Chinese Simplified",
     "zh-CHT": "Chinese Traditional",
+    "zh-cn": "Chinese Simplified",
+    "zh-tw": "Chinese Traditional",
     "cs": "Czech",
     "da": "Danish",
     "nl": "Dutch",
